@@ -294,7 +294,8 @@ def api_predict():
         best_r = art['best_reg_model_name']
 
         live_model_path = f"models/live/{best_c.lower().replace(' ','_')}_model.pkl"
-        base_dir = 'models/live' if os.path.exists(live_model_path) else 'models'
+        is_live = os.path.exists(live_model_path)
+        base_dir = 'models/live' if is_live else 'models'
         cls_model = joblib.load(f"{base_dir}/{best_c.lower().replace(' ','_')}_model.pkl")
         reg_model = joblib.load(f"{base_dir}/{best_r.lower().replace(' ','_')}_model.pkl")
 
@@ -317,6 +318,7 @@ def api_predict():
             'confidence':  round(conf * 100, 1),
             'top3':        [{'track': t, 'prob': round(float(p)*100,1)} for t,p in top3],
             'predicted_gpa': round(gpa_pred, 2),
+            'model_source': 'live' if is_live else 'baseline'
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 400
@@ -396,7 +398,8 @@ def api_run_tests():
         sc_r   = art['scaler_reg']
         best_c = art['best_cls_model_name']
         live_model_path = f"models/live/{best_c.lower().replace(' ','_')}_model.pkl"
-        base_dir = 'models/live' if os.path.exists(live_model_path) else 'models'
+        is_live = os.path.exists(live_model_path)
+        base_dir = 'models/live' if is_live else 'models'
         cls_model = joblib.load(f"{base_dir}/{best_c.lower().replace(' ','_')}_model.pkl")
 
         for tc in TEST_CASES:
@@ -419,7 +422,13 @@ def api_run_tests():
         return jsonify({'error': str(e)}), 400
     total   = len(results)
     passing = sum(1 for r in results if r['passed'])
-    return jsonify({'results': results, 'total': total, 'passed': passing, 'failed': total - passing})
+    return jsonify({
+        'results': results, 
+        'total': total, 
+        'passed': passing, 
+        'failed': total - passing,
+        'model_source': 'live' if is_live else 'baseline'
+    })
 
 @app.route('/api/test-cases')
 def api_test_cases():

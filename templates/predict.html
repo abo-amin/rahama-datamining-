@@ -77,7 +77,8 @@
 
   <!-- Result Panel -->
   <div id="result-panel" style="display:none">
-    <div class="result-card" style="margin-bottom:16px">
+    <div class="result-card" style="margin-bottom:16px; position: relative;">
+      <div id="model-source-badge" style="position: absolute; top: 12px; left: 12px;"></div>
       <div style="font-size:12px;color:var(--sub);margin-bottom:8px">المسار المقترح</div>
       <div style="font-size:32px;font-weight:800;margin-bottom:4px" id="res-track">—</div>
       <div style="font-size:13px;color:var(--sub)" id="res-track-sub"></div>
@@ -159,6 +160,13 @@ async function predict() {
     document.getElementById('conf-val').textContent = d.confidence + '%';
     document.getElementById('gpa-pred').textContent = d.predicted_gpa.toFixed(2);
     document.getElementById('gpa-bar').style.width = ((d.predicted_gpa / 4.0) * 100) + '%';
+
+    const sourceBadge = document.getElementById('model-source-badge');
+    if (d.model_source === 'live') {
+      sourceBadge.innerHTML = '<span class="badge badge-green" style="font-size:11px">✨ موديل التدريب (Live)</span>';
+    } else {
+      sourceBadge.innerHTML = '<span class="badge badge-blue" style="font-size:11px">🔵 الموديل الأساسي (Baseline)</span>';
+    }
 
     const top3El = document.getElementById('top3-list');
     top3El.innerHTML = d.top3.map((t, i) => `
