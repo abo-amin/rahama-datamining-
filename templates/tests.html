@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}اختبارات سريعة — Smart Academic Advisor{% endblock %}
+{% block page_title %}✅ الاختبارات السريعة{% endblock %}
+
+{% block content %}
+<div class="alert alert-info" style="margin-bottom:20px">
+  <span>ℹ️</span>
+  <span>هذه الصفحة تحتوي على 6 حالات اختبار جاهزة ومعرّفة مسبقاً للتحقق من صحة عمل النماذج. كل حالة لها مسار متوقع معروف مسبقاً.</span>
+</div>
+
+<!-- Summary Cards -->
+<div class="grid-4" style="margin-bottom:24px" id="summary-cards">
+  <div class="card" style="text-align:center">
+    <div class="card-title">إجمالي الاختبارات</div>
+    <div class="card-value" style="color:var(--blue)" id="total-tests">6</div>
+  </div>
+  <div class="card" style="text-align:center">
+    <div class="card-title">ناجح ✅</div>
+    <div class="card-value" style="color:var(--green)" id="pass-count">—</div>
+  </div>
+  <div class="card" style="text-align:center">
+    <div class="card-title">فاشل ❌</div>
+    <div class="card-value" style="color:var(--red)" id="fail-count">—</div>
+  </div>
+  <div class="card" style="text-align:center">
+    <div class="card-title">نسبة النجاح</div>
+    <div class="card-value" id="pass-rate">—</div>
+  </div>
+</div>
+
+<!-- Run Button -->
+<div style="display:flex;gap:10px;margin-bottom:20px;align-items:center">
+  <button class="btn btn-primary" id="run-btn" onclick="runTests()" style="font-size:14px;padding:11px 24px">
+    ▶️ تشغيل كل الاختبارات
+  </button>
+  <div class="status-pill" id="test-status" style="display:none">
+    <span class="status-dot training"></span>
+    <span>جاري الاختبار...</span>
+  </div>
+</div>
+
+<!-- Progress bar -->
+<div class="progress-bar" style="margin-bottom:20px;display:none" id="test-progress-wrap">
+  <div class="progress-fill" id="test-progress" style="width:0%"></div>
+</div>
+
+<!-- Pre-defined test cases -->
+<div class="section-header" style="margin-bottom:14px">
+  <div class="section-title">📋 حالات الاختبار المعرّفة</div>
+</div>
+<div class="grid-auto" id="test-cards"></div>
+
+<!-- Results table -->
+<div class="card" style="margin-top:24px" id="results-card" style="display:none">
+  <div class="section-header">
+    <div class="section-title">📊 نتائج الاختبارات</div>
+    <span class="badge badge-blue" id="results-meta">—</span>
+  </div>
+  <div style="overflow-x:auto">
+    <table class="data-table" id="results-table">
+      <thead><tr>
+        <th>#</th><th>اسم الاختبار</th>
+        <th>المسار المتوقع</th><th>المسار الفعلي</th>
+        <th>نسبة الثقة</th><th>النتيجة</th>
+      </tr></thead>
+      <tbody id="results-tbody"></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const TRACK_ICONS = {
+  'AI':'🤖','Cloud_Computing':'☁️','Cybersecurity':'🔐',
+  'Data_Science':'📊','Networks':'🌐','Software_Engineering':'💻'
+};
+
+async function loadTestCases() {
+  const r = await fetch('/api/test-cases');
+  const cases = await r.json();
+  const grid = document.getElementById('test-cards');
+  grid.innerHTML = cases.map((tc, i) => {
+    const icon = TRACK_ICONS[tc.expected_track] || '🎓';
+    const passed = tc.data.passed_courses || [];
+    const failed = tc.data.failed_courses || [];
+    return `<div class="card test-card" id="tc-${i}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+        <div style="font-size:13px;font-weight:700">${tc.name}</div>
+        <span class="badge badge-blue" style="font-size:10px">#${i+1}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px;color:var(--sub);margin-bottom:10px">
+        <div>📊 GPA: <strong style="color:var(--text)">${tc.data.gpa}</strong></div>
+        <div>📅 ساعات: <strong style="color:var(--text)">${tc.data.credit_hours}</strong></div>
+        <div>👁️ حضور: <strong style="color:var(--text)">${tc.data.attendance}%</strong></div>
+        <div>🕐 دراسة: <strong style="color:var(--text)">${tc.data.study_hours}h</strong></div>
+        <div>💡 اهتمام: <strong style="color:var(--text)">${tc.data.interest}</strong></div>
+        <div>📚 مواد: <strong style="color:var(--text)">${passed.length} ناجح</strong></div>
+      </div>
+      <div style="border-top:1px solid var(--border-dim);padding-top:8px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:11px;color:var(--muted)">المتوقع:</span>
+        <span style="font-size:12px;font-weight:700;color:var(--blue)">${icon} ${tc.expected_track.replace(/_/g,' ')}</span>
+        <span class="badge" id="tc-badge-${i}" style="margin-right:auto;display:none"></span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function runTests() {
+  const btn = document.getElementById('run-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ جاري الاختبار...';
+  document.getElementById('test-status').style.display = '';
+  document.getElementById('test-progress-wrap').style.display = '';
+  document.getElementById('test-progress').style.width = '30%';
+
+  try {
+    const r = await fetch('/api/run-tests', { method: 'POST' });
+    const d = await r.json();
+    if (d.error) { alert('خطأ: '+d.error); return; }
+
+    document.getElementById('test-progress').style.width = '100%';
+
+    // Summary
+    const pct = (d.passed / d.total * 100).toFixed(0);
+    document.getElementById('pass-count').textContent = d.passed;
+    document.getElementById('fail-count').textContent = d.failed;
+    document.getElementById('pass-rate').textContent  = pct + '%';
+    document.getElementById('pass-rate').style.color  = d.passed===d.total ? 'var(--green)' : d.failed>2 ? 'var(--red)' : 'var(--amber)';
+    document.getElementById('results-meta').textContent = `${d.passed}/${d.total} نجح`;
+
+    // Per-card badges
+    d.results.forEach((res, i) => {
+      const badge = document.getElementById(`tc-badge-${i}`);
+      if (badge) {
+        badge.style.display = '';
+        badge.textContent = res.passed ? '✅ نجح' : '❌ فشل';
+        badge.className = 'badge ' + (res.passed ? 'badge-green' : 'badge-red');
+        const card = document.getElementById(`tc-${i}`);
+        if (card) {
+          card.style.borderColor = res.passed ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)';
+        }
+      }
+    });
+
+    // Results table
+    const tbody = document.getElementById('results-tbody');
+    tbody.innerHTML = d.results.map((res, i) => `
+      <tr class="test-row ${res.passed ? 'pass' : 'fail'}">
+        <td>${i+1}</td>
+        <td>${res.name}</td>
+        <td><span class="badge badge-blue">${TRACK_ICONS[res.expected]||'🎓'} ${res.expected.replace(/_/g,' ')}</span></td>
+        <td><span class="badge ${res.passed ? 'badge-green' : 'badge-red'}">${TRACK_ICONS[res.got]||'🎓'} ${res.got.replace(/_/g,' ')}</span></td>
+        <td><strong>${res.confidence}%</strong></td>
+        <td style="font-size:18px">${res.passed ? '✅' : '❌'}</td>
+      </tr>`).join('');
+
+    document.getElementById('results-card').style.display = '';
+
+  } catch(e) { alert('خطأ: '+e); }
+  finally {
+    btn.disabled = false;
+    btn.textContent = '▶️ تشغيل كل الاختبارات';
+    document.getElementById('test-status').style.display = 'none';
+  }
+}
+
+loadTestCases();
+</script>
+{% endblock %}

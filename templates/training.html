@@ -1,0 +1,299 @@
+{% extends "base.html" %}
+{% block title %}مركز التدريب — Smart Academic Advisor{% endblock %}
+{% block page_title %}🏋️ مركز التدريب{% endblock %}
+
+{% block content %}
+<div class="alert alert-warn">
+  <span>⚠️</span>
+  <span>النماذج الأصلية (Baseline) محفوظة بشكل دائم ولن تُحذف. التدريب الجديد يُحفظ في <code>models/live/</code> بشكل منفصل.</span>
+</div>
+
+<div class="grid-2" style="margin-bottom:24px;align-items:start">
+  <!-- Config panel -->
+  <div class="card">
+    <div class="section-title" style="margin-bottom:18px">⚙️ إعدادات التدريب</div>
+
+    <!-- Test size slider -->
+    <div class="form-group">
+      <label class="form-label">نسبة بيانات الاختبار (Test Size)</label>
+      <input type="range" class="form-range" id="test-size" min="10" max="40" value="20" step="5"
+             oninput="document.getElementById('test-size-val').textContent=this.value+'%'"/>
+      <div class="range-labels">
+        <span>10%</span>
+        <strong id="test-size-val" style="color:var(--blue)">20%</strong>
+        <span>40%</span>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">
+        نسبة البيانات المحجوزة لاختبار النماذج وقياس الدقة
+      </div>
+    </div>
+
+    <!-- Interest Encoding toggle -->
+    <div class="form-group">
+      <label class="form-label">ميزة مجال الاهتمام (Interest_Encoded)</label>
+      <div class="toggle-wrap">
+        <div class="toggle on" id="ie-toggle" onclick="toggleIE()"></div>
+        <span class="toggle-label" id="ie-label">مُفعّلة — سيتم تضمين ميزة الاهتمام</span>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
+      <button class="btn btn-primary" id="train-btn" onclick="startTraining()">
+        🚀 بدء التدريب
+      </button>
+      <button class="btn btn-danger" onclick="resetModels()">
+        🔄 Reset إلى Baseline
+      </button>
+    </div>
+  </div>
+
+  <!-- Live log -->
+  <div class="card">
+    <div class="section-header">
+      <div class="section-title">📟 سجل التدريب المباشر</div>
+      <button class="btn btn-outline" style="font-size:11px" onclick="clearLog()">مسح</button>
+    </div>
+    <div class="log-terminal" id="log-terminal">
+      <div class="log-line info">في انتظار بدء التدريب...</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;margin-top:12px">
+      <div class="progress-bar" style="flex:1"><div class="progress-fill" id="train-progress" style="width:0%"></div></div>
+      <span id="train-pct" style="font-size:12px;color:var(--sub);width:36px;text-align:right">0%</span>
+    </div>
+  </div>
+</div>
+
+<!-- Last training results -->
+<div class="card" id="results-section" style="display:none">
+  <div class="section-header">
+    <div class="section-title">📊 نتائج آخر تدريب</div>
+    <div id="results-meta" style="font-size:12px;color:var(--sub)"></div>
+  </div>
+  <div class="grid-2" style="margin-bottom:16px">
+    <div><canvas id="chart-train-cls" style="max-height:220px"></canvas></div>
+    <div><canvas id="chart-train-reg" style="max-height:220px"></canvas></div>
+  </div>
+  <div style="overflow-x:auto">
+    <table class="data-table" id="results-table">
+      <thead><tr>
+        <th>النموذج</th><th>النوع</th><th>Accuracy / R²</th>
+        <th>F1 / RMSE</th><th>Precision / MAE</th><th>CV Score</th><th>الحالة</th>
+      </tr></thead>
+      <tbody id="results-tbody"></tbody>
+    </table>
+  </div>
+  <div style="margin-top:12px;text-align:center">
+    <a href="/reports" class="btn btn-primary">📋 عرض التقارير التفصيلية</a>
+    <a href="/" class="btn btn-outline" style="margin-right:8px">📊 لوحة التحكم</a>
+  </div>
+</div>
+
+<!-- Baseline info -->
+<div class="card" style="margin-top:20px">
+  <div class="section-header">
+    <div class="section-title">🔵 النماذج الأصلية (Baseline)</div>
+    <span class="badge badge-blue">محمية — لن تُحذف</span>
+  </div>
+  <div class="grid-3" id="baseline-cards">
+    <div style="text-align:center;color:var(--muted);grid-column:span 3">جاري تحميل مقاييس الـ Baseline...</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let useIE = true;
+let trainClsChart, trainRegChart;
+
+function toggleIE() {
+  useIE = !useIE;
+  const t = document.getElementById('ie-toggle');
+  t.classList.toggle('on', useIE);
+  document.getElementById('ie-label').textContent = useIE
+    ? 'مُفعّلة — سيتم تضمين ميزة الاهتمام'
+    : 'معطّلة — سيُدرَّب بدون Interest_Encoded';
+}
+function clearLog() {
+  document.getElementById('log-terminal').innerHTML = '';
+}
+
+function logLine(msg, cls='') {
+  const el = document.getElementById('log-terminal');
+  const div = document.createElement('div');
+  const lower = msg.toLowerCase();
+  const lineClass = lower.includes('error') || lower.includes('traceback') ? 'err'
+                  : lower.includes('done') || lower.includes('saved') || lower.includes('complete') ? 'ok'
+                  : cls;
+  div.className = 'log-line ' + lineClass;
+  div.textContent = msg;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+let _progressSteps = 0;
+function updateProgress(msgs) {
+  _progressSteps = Math.min(_progressSteps + msgs.length * 4, 96);
+  document.getElementById('train-progress').style.width = _progressSteps + '%';
+  document.getElementById('train-pct').textContent = Math.round(_progressSteps) + '%';
+}
+
+async function startTraining() {
+  const btn = document.getElementById('train-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ جاري التدريب...';
+  _progressSteps = 0;
+  clearLog();
+  logLine('🚀 بدأ التدريب...', 'info');
+
+  const testSize = parseInt(document.getElementById('test-size').value) / 100;
+
+  try {
+    await fetch('/api/train', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        test_size: testSize,
+        use_interest_encoding: useIE
+      })
+    });
+  } catch(e) { logLine('❌ خطأ في الاتصال: '+e,'err'); btn.disabled=false; btn.textContent='🚀 بدء التدريب'; return; }
+
+  startStatusPoll(
+    (msg) => { logLine(msg); updateProgress([msg]); },
+    async (d) => {
+      document.getElementById('train-progress').style.width = '100%';
+      document.getElementById('train-pct').textContent = '100%';
+      btn.disabled = false;
+      btn.textContent = '🚀 بدء التدريب';
+
+      if (d.has_live) {
+        logLine('[Done] Training complete. Loading results...', 'ok');
+        // Small delay to ensure Flask has fully committed live_metrics
+        await new Promise(r => setTimeout(r, 600));
+        await loadResults();
+      } else {
+        logLine('[Error] Training finished but no live metrics found. Check server logs.', 'err');
+      }
+    }
+  );
+}
+
+async function resetModels() {
+  if (!confirm('هل تريد حذف النماذج الجديدة والعودة للـ Baseline؟')) return;
+  await fetch('/api/reset', { method: 'POST' });
+  logLine('🔄 تم الرجوع للنماذج الأصلية', 'ok');
+  document.getElementById('results-section').style.display = 'none';
+  loadBaseline();
+}
+
+async function loadResults() {
+  const r = await fetch('/api/metrics');
+  const d = await r.json();
+
+  // Only show results if live models exist
+  if (!d.live) {
+    logLine('[Warning] No live model results found.', 'err');
+    return;
+  }
+  const m = d.live;
+
+  document.getElementById('results-section').style.display = '';
+  const cfg = m.config || {};
+  document.getElementById('results-meta').textContent =
+    `Test Size: ${((cfg.test_size||0.2)*100).toFixed(0)}% | Train: ${cfg.train_size||'—'} | Test: ${cfg.test_size_actual||'—'} | IE: ${cfg.use_interest_encoding ? 'نعم' : 'لا'} | ${cfg.elapsed_seconds||'—'}s`;
+
+  const cls = m.classification || {};
+  const reg = m.regression || {};
+  const clsNames = Object.keys(cls);
+  const regNames = Object.keys(reg);
+
+  // Charts
+  if (trainClsChart) trainClsChart.destroy();
+  const tc = document.getElementById('chart-train-cls');
+  if (tc) {
+    trainClsChart = new Chart(tc, {
+      type: 'bar',
+      data: {
+        labels: clsNames,
+        datasets: [
+          { label: 'Accuracy %', data: clsNames.map(n=>(cls[n].accuracy*100).toFixed(2)), backgroundColor:'rgba(99,102,241,0.8)' },
+          { label: 'F1 %', data: clsNames.map(n=>(cls[n].f1_weighted*100).toFixed(2)), backgroundColor:'rgba(6,182,212,0.8)' },
+          { label: 'CV %', data: clsNames.map(n=>(cls[n].cv_mean*100).toFixed(2)), backgroundColor:'rgba(16,185,129,0.6)' },
+        ]
+      },
+      options: { responsive:true, plugins:{legend:{position:'top'}},
+                 scales:{ y:{ min:80, grid:{color:'rgba(255,255,255,0.04)'} }, x:{grid:{color:'rgba(255,255,255,0.04)'}} } }
+    });
+  }
+  if (trainRegChart) trainRegChart.destroy();
+  const tr2 = document.getElementById('chart-train-reg');
+  if (tr2) {
+    trainRegChart = new Chart(tr2, {
+      type: 'bar',
+      data: {
+        labels: regNames,
+        datasets: [
+          { label: 'R² %', data: regNames.map(n=>(reg[n].r2*100).toFixed(2)), backgroundColor:'rgba(16,185,129,0.8)' },
+          { label: 'RMSE', data: regNames.map(n=>(reg[n].rmse).toFixed(3)), backgroundColor:'rgba(245,158,11,0.7)' },
+          { label: 'MAE',  data: regNames.map(n=>(reg[n].mae).toFixed(3)),  backgroundColor:'rgba(236,72,153,0.7)' },
+        ]
+      },
+      options:{ responsive:true, plugins:{legend:{position:'top'}}, scales:{ x:{grid:{color:'rgba(255,255,255,0.04)'}}, y:{grid:{color:'rgba(255,255,255,0.04)'}} } }
+    });
+  }
+
+  // Table
+  const tbody = document.getElementById('results-tbody');
+  tbody.innerHTML = '';
+  clsNames.forEach(n => {
+    const c = cls[n];
+    const tr = document.createElement('tr');
+    if (c.is_best) tr.className = 'best-row';
+    tr.innerHTML = `
+      <td>${n}</td><td><span class="badge badge-blue">تصنيف</span></td>
+      <td><strong>${(c.accuracy*100).toFixed(2)}%</strong></td>
+      <td>${(c.f1_weighted*100).toFixed(2)}%</td>
+      <td>${(c.precision_weighted*100).toFixed(2)}%</td>
+      <td>${c.cv_mean ? (c.cv_mean*100).toFixed(1)+'%' : '—'}</td>
+      <td>${c.is_best ? '<span class="badge badge-green">👑</span>' : '—'}</td>`;
+    tbody.appendChild(tr);
+  });
+  regNames.forEach(n => {
+    const c = reg[n];
+    const tr = document.createElement('tr');
+    if (c.is_best) tr.className = 'best-row';
+    tr.innerHTML = `
+      <td>${n}</td><td><span class="badge badge-purple">انحدار</span></td>
+      <td><strong>R²: ${(c.r2*100).toFixed(2)}%</strong></td>
+      <td>RMSE: ${c.rmse}</td><td>MAE: ${c.mae}</td>
+      <td>${c.cv_r2_mean ? (c.cv_r2_mean*100).toFixed(1)+'%' : '—'}</td>
+      <td>${c.is_best ? '<span class="badge badge-green">👑</span>' : '—'}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+async function loadBaseline() {
+  const r = await fetch('/api/metrics');
+  const d = await r.json();
+  const b = d.baseline;
+  if (!b) return;
+  const cls = b.classification || {};
+  const reg = b.regression || {};
+  const bc  = document.getElementById('baseline-cards');
+  bc.innerHTML = '';
+  [...Object.entries(cls), ...Object.entries(reg)].forEach(([name, m]) => {
+    const isReg = m.r2 !== undefined;
+    bc.innerHTML += `<div class="card" style="padding:14px">
+      <div class="card-title">${name}</div>
+      <div style="font-size:22px;font-weight:800;color:${isReg?'var(--cyan)':'var(--blue)'}">
+        ${isReg ? (m.r2*100).toFixed(1)+'% R²' : (m.accuracy*100).toFixed(1)+'%'}
+      </div>
+      <div class="card-sub">${isReg ? 'RMSE: '+m.rmse : 'F1: '+(m.f1_weighted*100).toFixed(1)+'%'}</div>
+      ${m.is_best ? '<div style="margin-top:6px"><span class="badge badge-green">👑 أفضل نموذج</span></div>' : ''}
+    </div>`;
+  });
+}
+
+loadBaseline();
+</script>
+{% endblock %}

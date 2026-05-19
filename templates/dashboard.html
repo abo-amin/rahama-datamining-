@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Smart Academic Advisor{% endblock %}
+{% block page_title %}📊 لوحة التحكم الرئيسية{% endblock %}
+
+{% block content %}
+<!-- KPI Cards -->
+<div class="grid-4" style="margin-bottom:24px" id="kpi-row">
+  <div class="card">
+    <div class="card-title">إجمالي الطلاب</div>
+    <div class="card-value" style="color:var(--blue)" id="kpi-students">{{ stats.total }}</div>
+    <div class="card-sub">في مجموعة بيانات التدريب</div>
+  </div>
+  <div class="card">
+    <div class="card-title">أفضل دقة تصنيف</div>
+    <div class="card-value" style="color:var(--green)" id="kpi-acc">—</div>
+    <div class="card-sub" id="kpi-acc-model">جاري التحميل...</div>
+  </div>
+  <div class="card">
+    <div class="card-title">أفضل R² للانحدار</div>
+    <div class="card-value" style="color:var(--cyan)" id="kpi-r2">—</div>
+    <div class="card-sub" id="kpi-r2-model">توقع المعدل الدراسي</div>
+  </div>
+  <div class="card">
+    <div class="card-title">مصدر النماذج</div>
+    <div class="card-value" style="font-size:18px" id="kpi-source">—</div>
+    <div class="card-sub" id="kpi-trained-at">—</div>
+  </div>
+</div>
+
+<!-- Charts Row 1 -->
+<div class="grid-2" style="margin-bottom:24px">
+  <div class="card">
+    <div class="section-header">
+      <div><div class="section-title">مقارنة نماذج التصنيف</div>
+           <div class="section-sub">Accuracy &amp; F1-Score لكل نموذج</div></div>
+    </div>
+    <div class="chart-wrap"><canvas id="chart-cls"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="section-header">
+      <div><div class="section-title">مقارنة نماذج الانحدار</div>
+           <div class="section-sub">R² Score &amp; RMSE</div></div>
+    </div>
+    <div class="chart-wrap"><canvas id="chart-reg"></canvas></div>
+  </div>
+</div>
+
+<!-- Charts Row 2 -->
+<div class="grid-2" style="margin-bottom:24px">
+  <div class="card">
+    <div class="section-title" style="margin-bottom:14px">توزيع المسارات الأكاديمية</div>
+    <div class="chart-wrap" style="max-width:280px;margin:auto"><canvas id="chart-tracks"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="section-title" style="margin-bottom:14px">توزيع المعدل التراكمي GPA</div>
+    <div class="chart-wrap"><canvas id="chart-gpa"></canvas></div>
+  </div>
+</div>
+
+<!-- Metrics Table -->
+<div class="card" style="margin-bottom:24px">
+  <div class="section-header">
+    <div class="section-title">جدول المقاييس التفصيلي</div>
+    <span class="badge badge-blue" id="metrics-source-badge">—</span>
+  </div>
+  <div style="overflow-x:auto">
+    <table class="data-table" id="metrics-table">
+      <thead><tr>
+        <th>النموذج</th><th>النوع</th>
+        <th>Accuracy / R²</th><th>F1 / RMSE</th>
+        <th>Precision / MAE</th><th>Recall / CV</th>
+        <th>الحالة</th>
+      </tr></thead>
+      <tbody id="metrics-tbody"><tr><td colspan="7" style="text-align:center;color:var(--muted)">جاري التحميل...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- EDA Images -->
+<div class="section-header"><div class="section-title">📸 الرسوم البيانية التحليلية</div>
+  <a href="/training" class="btn btn-outline" style="font-size:12px">🔄 إعادة التدريب</a>
+</div>
+<div class="grid-2" id="plots-grid">
+  <div class="img-card">
+    <img id="plot-eda" src="" alt="EDA" onclick="openLightbox(this.src)"/>
+    <div class="img-caption">تحليل استكشافي للبيانات (EDA)</div>
+  </div>
+  <div class="img-card">
+    <img id="plot-final" src="" alt="Model Comparison" onclick="openLightbox(this.src)"/>
+    <div class="img-caption">مقارنة النماذج النهائية</div>
+  </div>
+  <div class="img-card">
+    <img id="plot-reg" src="" alt="Regression" onclick="openLightbox(this.src)"/>
+    <div class="img-caption">نتائج الانحدار وتوقع GPA</div>
+  </div>
+  <div class="img-card" id="plot-cm-wrap" style="display:none">
+    <img id="plot-cm" src="" alt="Confusion Matrix" onclick="openLightbox(this.src)"/>
+    <div class="img-caption">مصفوفة الحيرة — أفضل نموذج</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const TRACK_COLORS = ['#6366f1','#06b6d4','#ef4444','#10b981','#f59e0b','#8b5cf6'];
+let clsChart, regChart, tracksChart, gpaChart;
+
+function makeBarChart(id, labels, datasets) {
+  const ctx = document.getElementById(id);
+  if (!ctx) return;
+  return new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      plugins: { legend: { position: 'top' } },
+      scales: {
+        x: { grid: { color: 'rgba(255,255,255,0.05)' } },
+        y: { grid: { color: 'rgba(255,255,255,0.05)' }, beginAtZero: false }
+      }
+    }
+  });
+}
+
+async function loadMetrics() {
+  const r = await fetch('/api/metrics');
+  const d = await r.json();
+  const m = d.live || d.baseline;
+  if (!m) return;
+
+  const cls = m.classification || {};
+  const reg = m.regression     || {};
+  const isLive = !!d.live;
+
+  // KPI
+  const bestCls = m.best_cls;
+  const bestReg = m.best_reg;
+  document.getElementById('kpi-acc').textContent       = cls[bestCls] ? (cls[bestCls].accuracy * 100).toFixed(1) + '%' : '—';
+  document.getElementById('kpi-acc-model').textContent = bestCls || '—';
+  document.getElementById('kpi-r2').textContent        = reg[bestReg] ? (reg[bestReg].r2 * 100).toFixed(1) + '%' : '—';
+  document.getElementById('kpi-r2-model').textContent  = bestReg || '—';
+  document.getElementById('kpi-source').textContent    = isLive ? '🟢 Live' : '🔵 Baseline';
+  const ts = m.config && m.config.trained_at ? new Date(m.config.trained_at).toLocaleString('ar-EG') : 'النماذج الأصلية';
+  document.getElementById('kpi-trained-at').textContent = ts;
+  document.getElementById('metrics-source-badge').textContent = isLive ? 'Live Models' : 'Baseline Models';
+
+  // Classification bar chart
+  const clsNames = Object.keys(cls);
+  const accVals  = clsNames.map(n => +(cls[n].accuracy * 100).toFixed(2));
+  const f1Vals   = clsNames.map(n => +(cls[n].f1_weighted * 100).toFixed(2));
+  const baseClsAcc = d.baseline && d.baseline.classification
+    ? clsNames.map(n => +((d.baseline.classification[n]?.accuracy||0)*100).toFixed(2)) : null;
+
+  const clsDatasets = [
+    { label: 'Accuracy %', data: accVals, backgroundColor: 'rgba(99,102,241,0.8)' },
+    { label: 'F1 Score %', data: f1Vals,  backgroundColor: 'rgba(6,182,212,0.8)' },
+  ];
+  if (isLive && baseClsAcc) {
+    clsDatasets.push({ label: 'Baseline Acc %', data: baseClsAcc,
+                       backgroundColor: 'rgba(99,102,241,0.25)', borderColor:'#6366f1',
+                       borderWidth:1, borderDash:[4,4] });
+  }
+  if (clsChart) clsChart.destroy();
+  clsChart = makeBarChart('chart-cls', clsNames, clsDatasets);
+  if (clsChart) clsChart.options.scales.y.min = 85;
+
+  // Regression bar chart
+  const regNames  = Object.keys(reg);
+  const r2Vals    = regNames.map(n => +(reg[n].r2 * 100).toFixed(2));
+  const rmseVals  = regNames.map(n => +(reg[n].rmse).toFixed(3));
+  if (regChart) regChart.destroy();
+  regChart = makeBarChart('chart-reg', regNames, [
+    { label: 'R² %',  data: r2Vals,   backgroundColor: 'rgba(16,185,129,0.8)' },
+    { label: 'RMSE',  data: rmseVals, backgroundColor: 'rgba(245,158,11,0.7)' },
+  ]);
+
+  // Tracks doughnut
+  const tracks = d.dataset && d.dataset.tracks ? d.dataset.tracks : {};
+  if (tracksChart) tracksChart.destroy();
+  const tCtx = document.getElementById('chart-tracks');
+  if (tCtx && Object.keys(tracks).length) {
+    tracksChart = new Chart(tCtx, {
+      type: 'doughnut',
+      data: { labels: Object.keys(tracks), datasets:[{
+        data: Object.values(tracks),
+        backgroundColor: TRACK_COLORS, borderWidth: 2, borderColor: '#0d1527'
+      }]},
+      options: { responsive:true, plugins:{ legend:{ position:'bottom', labels:{font:{size:11}} } } }
+    });
+  }
+
+  // GPA histogram
+  if (d.dataset && d.dataset.gpa_hist) {
+    const bins  = d.dataset.gpa_bins.slice(0,-1).map(b => b.toFixed(1));
+    const hist  = d.dataset.gpa_hist;
+    if (gpaChart) gpaChart.destroy();
+    const gCtx = document.getElementById('chart-gpa');
+    if (gCtx) {
+      gpaChart = new Chart(gCtx, {
+        type: 'bar',
+        data: { labels: bins, datasets:[{
+          label: 'عدد الطلاب',
+          data: hist,
+          backgroundColor: 'rgba(139,92,246,0.7)',
+          borderRadius: 4,
+        }]},
+        options: {
+          responsive:true,
+          plugins:{ legend:{ display:false } },
+          scales:{
+            x:{ grid:{color:'rgba(255,255,255,0.04)'}, title:{display:true,text:'GPA'} },
+            y:{ grid:{color:'rgba(255,255,255,0.04)'}, title:{display:true,text:'Students'} }
+          }
+        }
+      });
+    }
+  }
+
+  // Metrics table
+  const tbody = document.getElementById('metrics-tbody');
+  tbody.innerHTML = '';
+  clsNames.forEach(n => {
+    const c = cls[n];
+    const tr = document.createElement('tr');
+    if (c.is_best) tr.className = 'best-row';
+    tr.innerHTML = `
+      <td>${n}</td>
+      <td><span class="badge badge-blue">تصنيف</span></td>
+      <td><strong>${(c.accuracy*100).toFixed(2)}%</strong></td>
+      <td>${(c.f1_weighted*100).toFixed(2)}%</td>
+      <td>${(c.precision_weighted*100).toFixed(2)}%</td>
+      <td>${(c.recall_weighted*100).toFixed(2)}%</td>
+      <td>${c.is_best ? '<span class="badge badge-green">👑 الأفضل</span>' : '—'}</td>`;
+    tbody.appendChild(tr);
+  });
+  regNames.forEach(n => {
+    const c = reg[n];
+    const tr = document.createElement('tr');
+    if (c.is_best) tr.className = 'best-row';
+    tr.innerHTML = `
+      <td>${n}</td>
+      <td><span class="badge badge-purple">انحدار</span></td>
+      <td><strong>R²: ${(c.r2*100).toFixed(2)}%</strong></td>
+      <td>RMSE: ${c.rmse}</td>
+      <td>MAE: ${c.mae}</td>
+      <td>CV: ${c.cv_r2_mean ? (c.cv_r2_mean*100).toFixed(1)+'%' : '—'}</td>
+      <td>${c.is_best ? '<span class="badge badge-green">👑 الأفضل</span>' : '—'}</td>`;
+    tbody.appendChild(tr);
+  });
+
+  // Plots
+  const plots = d.plots;
+  const livePl = plots.live && Object.keys(plots.live).length ? plots.live : null;
+  const basePl = plots.baseline;
+
+  document.getElementById('plot-eda').src   = livePl ? livePl.eda   : basePl.eda;
+  document.getElementById('plot-final').src = livePl ? livePl.final : basePl.final;
+  document.getElementById('plot-reg').src   = livePl ? livePl.regression : (basePl.regression||'');
+  if (livePl && livePl.confusion) {
+    document.getElementById('plot-cm').src = livePl.confusion;
+    document.getElementById('plot-cm-wrap').style.display = '';
+  }
+}
+
+loadMetrics();
+// Refresh every 5s if training is active
+setInterval(loadMetrics, 5000);
+</script>
+{% endblock %}

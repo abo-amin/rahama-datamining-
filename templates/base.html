@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>{% block title %}Smart Academic Advisor{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-icon">🎓</div>
+    <h1>Smart Academic<br>Advisor</h1>
+    <p>Data Mining &amp; ML</p>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-section">الصفحات</div>
+    <a href="/"         class="nav-link {% if active=='dashboard' %}active{% endif %}">
+      <span class="icon">📊</span> لوحة التحكم
+    </a>
+    <a href="/training" class="nav-link {% if active=='training' %}active{% endif %}">
+      <span class="icon">🏋️</span> مركز التدريب
+    </a>
+    <a href="/reports"  class="nav-link {% if active=='reports'  %}active{% endif %}">
+      <span class="icon">📋</span> تقارير النماذج
+    </a>
+    <div class="nav-section" style="margin-top:12px">التفاعل</div>
+    <a href="/predict"  class="nav-link {% if active=='predict'  %}active{% endif %}">
+      <span class="icon">🔮</span> التنبؤ الفردي
+    </a>
+    <a href="/tests"    class="nav-link {% if active=='tests'    %}active{% endif %}">
+      <span class="icon">✅</span> اختبارات سريعة
+    </a>
+    <a href="/association" class="nav-link {% if active=='association' %}active{% endif %}">
+      <span class="icon">🔗</span> قواعد الارتباط
+    </a>
+  </nav>
+</aside>
+
+<!-- Lightbox -->
+<div class="lightbox" id="lightbox" onclick="closeLightbox()">
+  <button class="lightbox-close" onclick="closeLightbox()">✕</button>
+  <img id="lightbox-img" src="" alt=""/>
+</div>
+
+<!-- Main -->
+<main class="main">
+  <header class="topbar">
+    <span style="font-size:20px;cursor:pointer" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</span>
+    <h2>{% block page_title %}{% endblock %}</h2>
+    <div class="status-pill" id="global-status">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-text">جاهز</span>
+    </div>
+  </header>
+
+  <div class="page">
+    {% block content %}{% endblock %}
+  </div>
+  <footer style="text-align: center; padding: 20px; margin-top: 20px; color: var(--sub); font-size: 13px; border-top: 1px solid rgba(255,255,255,0.05);">
+    Created by Mohamed amin
+  </footer>
+</main>
+
+<script>
+function openLightbox(src) {
+  document.getElementById('lightbox-img').src = src;
+  document.getElementById('lightbox').classList.add('open');
+}
+function closeLightbox() {
+  document.getElementById('lightbox').classList.remove('open');
+}
+
+let _statusInterval = null;
+let _msgCount = 0;
+
+function startStatusPoll(onMsg, onDone) {
+  _msgCount = 0;
+  _statusInterval = setInterval(async () => {
+    try {
+      const r = await fetch(`/api/training-status?since=${_msgCount}`);
+      const d = await r.json();
+      if (d.messages && d.messages.length) {
+        d.messages.forEach(m => onMsg && onMsg(m));
+        _msgCount = d.total_messages;
+      }
+      document.getElementById('status-dot').className = 'status-dot' + (d.is_training ? ' training' : '');
+      document.getElementById('status-text').textContent = d.is_training ? 'تدريب جارٍ...' : 'جاهز';
+      if (!d.is_training && _statusInterval) {
+        clearInterval(_statusInterval);
+        _statusInterval = null;
+        onDone && onDone(d);
+      }
+    } catch(e) {}
+  }, 800);
+}
+
+Chart.defaults.color = '#94a3b8';
+Chart.defaults.font.family = 'Inter';
+Chart.defaults.plugins.legend.labels.boxWidth = 12;
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

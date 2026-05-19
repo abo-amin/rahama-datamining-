@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+{% block title %}تقارير النماذج — Smart Academic Advisor{% endblock %}
+{% block page_title %}📋 تقارير النماذج التفصيلية{% endblock %}
+
+{% block content %}
+<!-- Source toggle -->
+<div style="display:flex;gap:10px;margin-bottom:20px;align-items:center;flex-wrap:wrap">
+  <button class="btn btn-primary" id="btn-show-live" onclick="showSource('live')" style="display:none">🟢 عرض Live Models</button>
+  <button class="btn btn-outline" id="btn-show-base" onclick="showSource('baseline')">🔵 عرض Baseline</button>
+  <span class="badge badge-blue" id="src-badge" style="margin-right:auto">جاري التحميل...</span>
+</div>
+
+<!-- Classification Section -->
+<div class="section-header"><div>
+  <div class="section-title">🏷️ نماذج التصنيف (Track Prediction)</div>
+  <div class="section-sub">تنبؤ المسار الأكاديمي للطالب بناءً على سجله الدراسي</div>
+</div></div>
+<div class="grid-auto" id="cls-cards" style="margin-bottom:28px">
+  <div style="color:var(--muted);grid-column:span 3">جاري التحميل...</div>
+</div>
+
+<!-- Regression Section -->
+<div class="section-header" style="margin-top:8px"><div>
+  <div class="section-title">📈 نماذج الانحدار (GPA Prediction)</div>
+  <div class="section-sub">توقع المعدل الدراسي التراكمي</div>
+</div></div>
+<div class="grid-auto" id="reg-cards" style="margin-bottom:28px">
+  <div style="color:var(--muted);grid-column:span 3">جاري التحميل...</div>
+</div>
+
+<!-- Confusion matrices -->
+<div class="section-header">
+  <div class="section-title">🗺️ مصفوفات الحيرة (Confusion Matrices)</div>
+</div>
+<div class="grid-auto" id="cm-section" style="margin-bottom:28px"></div>
+
+<!-- Per-class breakdown -->
+<div class="card" style="margin-bottom:24px">
+  <div class="section-header">
+    <div class="section-title">📊 تفصيل الدقة لكل مسار (أفضل نموذج تصنيف)</div>
+    <span class="badge badge-blue" id="best-cls-badge">—</span>
+  </div>
+  <div style="overflow-x:auto">
+    <table class="data-table" id="per-class-table">
+      <thead><tr><th>المسار</th><th>Precision</th><th>Recall</th><th>F1-Score</th><th>Support</th></tr></thead>
+      <tbody id="per-class-tbody"><tr><td colspan="5" style="color:var(--muted);text-align:center">جاري التحميل...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Plot images -->
+<div class="section-header"><div class="section-title">📸 الرسوم البيانية</div></div>
+<div class="grid-2" id="report-plots">
+  <div class="img-card"><img id="rpt-final" src="" alt="" onclick="openLightbox(this.src)"/>
+    <div class="img-caption">مقارنة النماذج النهائية</div></div>
+  <div class="img-card"><img id="rpt-reg" src="" alt="" onclick="openLightbox(this.src)"/>
+    <div class="img-caption">توزيع Actual vs Predicted GPA</div></div>
+  <div class="img-card" id="rpt-cm-wrap" style="display:none">
+    <img id="rpt-cm" src="" alt="" onclick="openLightbox(this.src)"/>
+    <div class="img-caption">Confusion Matrix — أفضل نموذج</div></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _currentSrc = 'live';
+let _allMetrics = null;
+
+const METRIC_COLORS = {
+  'AI':'#6366f1','Cloud_Computing':'#06b6d4','Cybersecurity':'#ef4444',
+  'Data_Science':'#10b981','Networks':'#f59e0b','Software_Engineering':'#8b5cf6',
+};
+
+function makeClsCard(name, m, srcLabel) {
+  const isBest = m.is_best;
+  return `<div class="card" style="border:1px solid ${isBest?'rgba(99,102,241,0.4)':'var(--border-dim)'}">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div class="card-title" style="margin:0">${name}</div>
+      ${isBest ? '<span class="badge badge-green">👑 الأفضل</span>' : ''}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:12px">
+      <div style="text-align:center;background:rgba(99,102,241,0.08);border-radius:8px;padding:10px">
+        <div style="font-size:24px;font-weight:800;color:var(--blue)">${(m.accuracy*100).toFixed(2)}%</div>
+        <div style="font-size:11px;color:var(--sub)">Accuracy</div>
+      </div>
+      <div style="text-align:center;background:rgba(6,182,212,0.08);border-radius:8px;padding:10px">
+        <div style="font-size:24px;font-weight:800;color:var(--cyan)">${(m.f1_weighted*100).toFixed(2)}%</div>
+        <div style="font-size:11px;color:var(--sub)">F1 Score</div>
+      </div>
+      <div style="text-align:center;background:rgba(16,185,129,0.08);border-radius:8px;padding:10px">
+        <div style="font-size:20px;font-weight:700;color:var(--green)">${(m.precision_weighted*100).toFixed(1)}%</div>
+        <div style="font-size:11px;color:var(--sub)">Precision</div>
+      </div>
+      <div style="text-align:center;background:rgba(245,158,11,0.08);border-radius:8px;padding:10px">
+        <div style="font-size:20px;font-weight:700;color:var(--amber)">${(m.recall_weighted*100).toFixed(1)}%</div>
+        <div style="font-size:11px;color:var(--sub)">Recall</div>
+      </div>
+    </div>
+    ${m.cv_mean ? `<div class="progress-bar" style="margin-bottom:4px"><div class="progress-fill" style="width:${(m.cv_mean*100).toFixed(0)}%"></div></div>
+    <div style="font-size:11px;color:var(--sub)">CV Score: ${(m.cv_mean*100).toFixed(1)}% ± ${m.cv_std ? (m.cv_std*100).toFixed(1) : '—'}%</div>` : ''}
+  </div>`;
+}
+
+function makeRegCard(name, m) {
+  const isBest = m.is_best;
+  return `<div class="card" style="border:1px solid ${isBest?'rgba(16,185,129,0.4)':'var(--border-dim)'}">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div class="card-title" style="margin:0">${name}</div>
+      ${isBest ? '<span class="badge badge-green">👑 الأفضل</span>' : ''}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:12px">
+      <div style="text-align:center;background:rgba(16,185,129,0.08);border-radius:8px;padding:10px">
+        <div style="font-size:24px;font-weight:800;color:var(--green)">${(m.r2*100).toFixed(2)}%</div>
+        <div style="font-size:11px;color:var(--sub)">R² Score</div>
+      </div>
+      <div style="text-align:center;background:rgba(245,158,11,0.08);border-radius:8px;padding:10px">
+        <div style="font-size:24px;font-weight:800;color:var(--amber)">${m.rmse}</div>
+        <div style="font-size:11px;color:var(--sub)">RMSE</div>
+      </div>
+      <div style="text-align:center;background:rgba(139,92,246,0.08);border-radius:8px;padding:10px">
+        <div style="font-size:20px;font-weight:700;color:var(--purple)">${m.mae}</div>
+        <div style="font-size:11px;color:var(--sub)">MAE</div>
+      </div>
+      <div style="text-align:center;background:rgba(6,182,212,0.08);border-radius:8px;padding:10px">
+        <div style="font-size:20px;font-weight:700;color:var(--cyan)">${m.mse}</div>
+        <div style="font-size:11px;color:var(--sub)">MSE</div>
+      </div>
+    </div>
+    ${m.cv_r2_mean ? `<div class="progress-bar" style="margin-bottom:4px"><div class="progress-fill" style="width:${(m.cv_r2_mean*100).toFixed(0)}%;background:linear-gradient(90deg,var(--green),var(--cyan))"></div></div>
+    <div style="font-size:11px;color:var(--sub)">CV R²: ${(m.cv_r2_mean*100).toFixed(1)}% ± ${m.cv_r2_std ? (m.cv_r2_std*100).toFixed(1) : '—'}%</div>` : ''}
+  </div>`;
+}
+
+function renderCM(name, cmData, classes) {
+  if (!cmData || !cmData.length) return '';
+  const max_val = Math.max(...cmData.flat());
+  let rows = cmData.map((row, i) =>
+    '<tr>' + row.map((val, j) => {
+      const intensity = max_val > 0 ? val / max_val : 0;
+      const r = i === j ? Math.round(30 + 70*intensity) : 0;
+      const g = i === j ? Math.round(110 + 75*intensity) : Math.round(40*intensity);
+      const b = i === j ? Math.round(40 + 50*intensity) : Math.round(100*intensity);
+      const textColor = intensity > 0.5 ? '#fff' : '#94a3b8';
+      return `<td class="cm-cell" style="background:rgba(${r},${g},${b},${0.2+intensity*0.75});color:${textColor}">${val}</td>`;
+    }).join('') + '</tr>'
+  ).join('');
+  const hdrs = classes.map(c => `<th>${c.replace('_',' ')}</th>`).join('');
+  const rowHdrs = classes.map((c,i) => `<th style="text-align:right">${c.replace('_',' ')}</th>` + cmData[i].map((val,j)=>{
+    const intensity = max_val > 0 ? val / max_val : 0;
+    const r = i === j ? Math.round(30 + 70*intensity) : 0;
+    const g = i === j ? Math.round(110 + 75*intensity) : Math.round(40*intensity);
+    const b = i === j ? Math.round(40 + 50*intensity) : Math.round(100*intensity);
+    const textColor = intensity > 0.5 ? '#fff' : '#94a3b8';
+    return `<td class="cm-cell" style="background:rgba(${r},${g},${b},${0.2+intensity*0.75});color:${textColor}">${val}</td>`;
+  }).join('')).map(s=>'<tr>'+s+'</tr>').join('');
+
+  return `<div class="card">
+    <div class="card-title" style="margin-bottom:10px">Confusion Matrix — ${name}</div>
+    <div style="overflow-x:auto"><table class="cm-table">
+      <tr><th></th>${hdrs}</tr>${rowHdrs}
+    </table></div>
+  </div>`;
+}
+
+function showSource(src) {
+  _currentSrc = src;
+  if (!_allMetrics) return;
+  const m = src === 'live' && _allMetrics.live ? _allMetrics.live : _allMetrics.baseline;
+  renderAll(m, src, _allMetrics.plots);
+}
+
+function renderAll(m, src, plots) {
+  if (!m) return;
+  const cls = m.classification || {};
+  const reg = m.regression || {};
+  const label = src === 'live' ? '🟢 Live Models' : '🔵 Baseline Models';
+  document.getElementById('src-badge').textContent = label;
+
+  document.getElementById('cls-cards').innerHTML = Object.entries(cls).map(([n,v])=>makeClsCard(n,v,label)).join('');
+  document.getElementById('reg-cards').innerHTML = Object.entries(reg).map(([n,v])=>makeRegCard(n,v)).join('');
+
+  // Confusion matrices
+  const cmSec = document.getElementById('cm-section');
+  cmSec.innerHTML = '';
+  Object.entries(cls).forEach(([name, cm_data]) => {
+    if (cm_data.confusion_matrix && cm_data.per_class) {
+      const classes = Object.keys(cm_data.per_class);
+      cmSec.innerHTML += renderCM(name, cm_data.confusion_matrix, classes);
+    }
+  });
+
+  // Per-class table
+  const bestCls = m.best_cls;
+  document.getElementById('best-cls-badge').textContent = bestCls || '—';
+  const tbody = document.getElementById('per-class-tbody');
+  tbody.innerHTML = '';
+  const pc = cls[bestCls] && cls[bestCls].per_class ? cls[bestCls].per_class : {};
+  Object.entries(pc).forEach(([track, vals]) => {
+    const tr = document.createElement('tr');
+    const color = METRIC_COLORS[track] || 'var(--blue)';
+    tr.innerHTML = `
+      <td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};margin-left:6px"></span>${track}</td>
+      <td>${((vals.precision||0)*100).toFixed(1)}%</td>
+      <td>${((vals.recall||0)*100).toFixed(1)}%</td>
+      <td><strong>${((vals['f1-score']||0)*100).toFixed(1)}%</strong></td>
+      <td>${vals.support||'—'}</td>`;
+    tbody.appendChild(tr);
+  });
+
+  // Plots
+  const livePl = plots.live && Object.keys(plots.live).length ? plots.live : null;
+  const basePl  = plots.baseline;
+  document.getElementById('rpt-final').src = src==='live' && livePl ? livePl.final : basePl.final;
+  document.getElementById('rpt-reg').src   = src==='live' && livePl ? livePl.regression : (basePl.regression||'');
+  if (src==='live' && livePl && livePl.confusion) {
+    document.getElementById('rpt-cm').src = livePl.confusion;
+    document.getElementById('rpt-cm-wrap').style.display = '';
+  }
+}
+
+async function load() {
+  const r = await fetch('/api/metrics');
+  _allMetrics = await r.json();
+  const hasLive = !!_allMetrics.live;
+  document.getElementById('btn-show-live').style.display = hasLive ? '' : 'none';
+  showSource(hasLive ? 'live' : 'baseline');
+}
+load();
+</script>
+{% endblock %}

@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}التنبؤ الفردي — Smart Academic Advisor{% endblock %}
+{% block page_title %}🔮 التنبؤ بالمسار الدراسي{% endblock %}
+
+{% block content %}
+<div class="grid-2" style="align-items:start;gap:24px">
+  <!-- Input Form -->
+  <div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="section-title" style="margin-bottom:16px">📝 بيانات الطالب الأساسية</div>
+      <div class="grid-2" style="gap:12px">
+        <div class="form-group">
+          <label class="form-label">المعدل التراكمي (GPA)</label>
+          <input type="number" class="form-input" id="gpa" min="1.5" max="4.0" step="0.01" value="3.2" placeholder="0.00 – 4.00"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">المعدل الترم الماضي</label>
+          <input type="number" class="form-input" id="prev-gpa" min="1.5" max="4.0" step="0.01" value="3.1"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">الساعات المنجزة</label>
+          <input type="number" class="form-input" id="credit" min="0" max="200" value="90"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">نسبة الحضور %</label>
+          <input type="number" class="form-input" id="attend" min="0" max="100" value="85"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">ساعات دراسة أسبوعية</label>
+          <input type="number" class="form-input" id="study" min="0" max="60" value="15"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">مجال الاهتمام</label>
+          <select class="form-select" id="interest">
+            {% for area in interest_areas %}
+            <option value="{{ area }}">{{ area }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Courses passed -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="section-header">
+        <div class="section-title">✅ المواد المجتازة</div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-outline" style="font-size:11px;padding:4px 10px" onclick="selectAll()">اختر الكل</button>
+          <button class="btn btn-outline" style="font-size:11px;padding:4px 10px" onclick="clearAll()">مسح</button>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;max-height:220px;overflow-y:auto" id="passed-grid">
+        {% for c in courses %}
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;padding:3px">
+          <input type="checkbox" class="passed-cb" value="{{ c }}" style="accent-color:var(--blue)"/> {{ c }}
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Courses failed -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="section-title" style="margin-bottom:10px">❌ المواد الراسب فيها</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;max-height:160px;overflow-y:auto">
+        {% for c in courses %}
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;padding:3px">
+          <input type="checkbox" class="failed-cb" value="{{ c }}" style="accent-color:var(--red)"/> {{ c }}
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <button class="btn btn-primary" style="width:100%;justify-content:center;padding:12px" onclick="predict()">
+      🔮 تنبؤ المسار والمعدل
+    </button>
+  </div>
+
+  <!-- Result Panel -->
+  <div id="result-panel" style="display:none">
+    <div class="result-card" style="margin-bottom:16px">
+      <div style="font-size:12px;color:var(--sub);margin-bottom:8px">المسار المقترح</div>
+      <div style="font-size:32px;font-weight:800;margin-bottom:4px" id="res-track">—</div>
+      <div style="font-size:13px;color:var(--sub)" id="res-track-sub"></div>
+      <div style="margin:16px 0">
+        <div style="font-size:12px;color:var(--sub);margin-bottom:6px">نسبة الثقة</div>
+        <div class="progress-bar" style="height:12px;margin-bottom:4px">
+          <div class="progress-fill" id="conf-bar" style="width:0%"></div>
+        </div>
+        <div style="font-size:22px;font-weight:800;color:var(--blue)" id="conf-val">—</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="section-title" style="margin-bottom:12px">المعدل المتوقع للفصل القادم</div>
+      <div style="font-size:48px;font-weight:800;text-align:center;color:var(--cyan)" id="gpa-pred">—</div>
+      <div style="text-align:center;color:var(--sub);font-size:12px">من 4.00</div>
+      <div class="progress-bar" style="margin-top:10px">
+        <div class="progress-fill" id="gpa-bar" style="width:0%;background:linear-gradient(90deg,var(--cyan),var(--blue))"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title" style="margin-bottom:12px">🏆 أفضل 3 مسارات مقترحة</div>
+      <div id="top3-list"></div>
+    </div>
+  </div>
+
+  <div id="empty-state" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:300px;color:var(--muted)">
+    <div style="font-size:64px;margin-bottom:16px">🎓</div>
+    <div style="font-size:16px;font-weight:600">أدخل بيانات الطالب وانقر "تنبؤ"</div>
+    <div style="font-size:13px;margin-top:6px">سيقوم النظام بتحليل السجل الأكاديمي وإعطاء توصية</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const TRACK_ICONS = {
+  'AI':'🤖','Cloud_Computing':'☁️','Cybersecurity':'🔐',
+  'Data_Science':'📊','Networks':'🌐','Software_Engineering':'💻'
+};
+
+function selectAll() {
+  document.querySelectorAll('.passed-cb').forEach(cb => cb.checked = true);
+}
+function clearAll() {
+  document.querySelectorAll('.passed-cb').forEach(cb => cb.checked = false);
+}
+
+async function predict() {
+  const passed = [...document.querySelectorAll('.passed-cb:checked')].map(c=>c.value);
+  const failed = [...document.querySelectorAll('.failed-cb:checked')].map(c=>c.value);
+  const payload = {
+    gpa:          parseFloat(document.getElementById('gpa').value),
+    prev_gpa:     parseFloat(document.getElementById('prev-gpa').value),
+    credit_hours: parseInt(document.getElementById('credit').value),
+    attendance:   parseFloat(document.getElementById('attend').value),
+    study_hours:  parseFloat(document.getElementById('study').value),
+    interest:     document.getElementById('interest').value,
+    passed_courses: passed,
+    failed_courses: failed,
+  };
+
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('result-panel').style.display = 'none';
+
+  try {
+    const r = await fetch('/api/predict', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const d = await r.json();
+    if (d.error) { alert('خطأ: ' + d.error); return; }
+
+    const icon = TRACK_ICONS[d.track] || '🎓';
+    document.getElementById('res-track').textContent = icon + ' ' + d.track.replace(/_/g,' ');
+    document.getElementById('res-track-sub').textContent = 'بدقة ' + d.confidence + '%';
+    document.getElementById('conf-bar').style.width = d.confidence + '%';
+    document.getElementById('conf-val').textContent = d.confidence + '%';
+    document.getElementById('gpa-pred').textContent = d.predicted_gpa.toFixed(2);
+    document.getElementById('gpa-bar').style.width = ((d.predicted_gpa / 4.0) * 100) + '%';
+
+    const top3El = document.getElementById('top3-list');
+    top3El.innerHTML = d.top3.map((t, i) => `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span style="width:22px;height:22px;background:rgba(99,102,241,${0.3-i*0.08});border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">${i+1}</span>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:600">${TRACK_ICONS[t.track]||'🎓'} ${t.track.replace(/_/g,' ')}</div>
+          <div class="progress-bar" style="height:6px;margin-top:4px">
+            <div class="progress-fill" style="width:${t.prob}%;background:rgba(99,102,241,${0.8-i*0.2})"></div>
+          </div>
+        </div>
+        <span style="font-size:13px;font-weight:700;color:var(--blue)">${t.prob}%</span>
+      </div>`).join('');
+
+    document.getElementById('result-panel').style.display = '';
+  } catch(e) { alert('خطأ في الاتصال: ' + e); }
+}
+</script>
+{% endblock %}

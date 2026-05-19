@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Academic Advisor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Smart Academic Advisor</h1>
+            <p>Get personalized track recommendations based on your academic performance</p>
+        </header>
+
+        <main>
+            <form id="advisorForm">
+                <div class="form-section">
+                    <h2>Academic Information</h2>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="gpa">GPA (1.5 - 4.0)</label>
+                            <input type="number" id="gpa" name="gpa" min="1.5" max="4.0" step="0.01" inputmode="decimal" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="prev_gpa">Previous Semester GPA</label>
+                            <input type="number" id="prev_gpa" name="prev_gpa" min="1.0" max="4.0" step="0.01" inputmode="decimal" required>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="credit_hours">Credit Hours Completed</label>
+                            <input type="number" id="credit_hours" name="credit_hours" min="60" max="140" inputmode="numeric" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="attendance">Attendance Rate (%)</label>
+                            <input type="number" id="attendance" name="attendance" min="50" max="100" step="0.1" inputmode="decimal" required>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="study_hours">Study Hours Per Week</label>
+                        <input type="number" id="study_hours" name="study_hours" min="2" max="40" step="0.5" inputmode="decimal" required>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h2>Interest Area</h2>
+                    <div class="form-group">
+                        <label for="interest">Select Your Interest</label>
+                        <select id="interest" name="interest" required>
+                            <optgroup label="Artificial Intelligence">
+                                <option value="machine learning">Machine Learning</option>
+                                <option value="deep learning">Deep Learning</option>
+                                <option value="neural networks">Neural Networks</option>
+                                <option value="computer vision">Computer Vision</option>
+                                <option value="NLP">NLP</option>
+                                <option value="robotics">Robotics</option>
+                            </optgroup>
+                            <optgroup label="Software Engineering">
+                                <option value="web development">Web Development</option>
+                                <option value="mobile apps">Mobile Apps</option>
+                                <option value="software design">Software Design</option>
+                                <option value="agile">Agile</option>
+                                <option value="testing">Testing</option>
+                                <option value="DevOps">DevOps</option>
+                            </optgroup>
+                            <optgroup label="Data Science">
+                                <option value="data analysis">Data Analysis</option>
+                                <option value="statistics">Statistics</option>
+                                <option value="visualization">Visualization</option>
+                                <option value="big data">Big Data</option>
+                                <option value="business intelligence">Business Intelligence</option>
+                                <option value="ML">ML</option>
+                            </optgroup>
+                            <optgroup label="Networks">
+                                <option value="networking">Networking</option>
+                                <option value="routing">Routing</option>
+                                <option value="protocols">Protocols</option>
+                                <option value="telecommunications">Telecommunications</option>
+                                <option value="IoT">IoT</option>
+                                <option value="wireless">Wireless</option>
+                            </optgroup>
+                            <optgroup label="Cybersecurity">
+                                <option value="security">Security</option>
+                                <option value="cryptography">Cryptography</option>
+                                <option value="ethical hacking">Ethical Hacking</option>
+                                <option value="penetration testing">Penetration Testing</option>
+                                <option value="forensics">Forensics</option>
+                                <option value="firewalls">Firewalls</option>
+                            </optgroup>
+                            <optgroup label="Cloud Computing">
+                                <option value="cloud">Cloud</option>
+                                <option value="AWS">AWS</option>
+                                <option value="Azure">Azure</option>
+                                <option value="virtualization">Virtualization</option>
+                                <option value="containers">Containers</option>
+                                <option value="microservices">Microservices</option>
+                            </optgroup>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h2>Courses Passed</h2>
+                    <div class="course-grid" id="passedCourses">
+                        {% for course in courses %}
+                        <label class="course-checkbox">
+                            <input type="checkbox" name="passed" value="{{ course }}">
+                            <span>{{ course }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h2>Courses Failed</h2>
+                    <div class="course-grid" id="failedCourses">
+                        {% for course in courses %}
+                        <label class="course-checkbox">
+                            <input type="checkbox" name="failed" value="{{ course }}">
+                            <span>{{ course }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <button type="submit" class="btn-predict">Get Recommendation</button>
+            </form>
+
+            <div id="result" class="result-section" style="display: none;">
+                <h2>Recommendation Result</h2>
+                <div class="main-result">
+                    <div class="track-badge" id="recommendedTrack"></div>
+                    <div class="confidence-bar">
+                        <div class="confidence-fill" id="confidenceFill"></div>
+                        <span class="confidence-text" id="confidenceText"></span>
+                    </div>
+                </div>
+                <div class="top-results" id="topResults"></div>
+            </div>
+        </main>
+
+        <footer>
+            <p>Smart Academic Advisor - Powered by Machine Learning & Data Mining</p>
+        </footer>
+    </div>
+
+    <script>
+        document.getElementById('advisorForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const passedCourses = Array.from(document.querySelectorAll('input[name="passed"]:checked')).map(cb => cb.value);
+            const failedCourses = Array.from(document.querySelectorAll('input[name="failed"]:checked')).map(cb => cb.value);
+            
+            const data = {
+                gpa: document.getElementById('gpa').value,
+                prev_gpa: document.getElementById('prev_gpa').value,
+                credit_hours: document.getElementById('credit_hours').value,
+                attendance: document.getElementById('attendance').value,
+                study_hours: document.getElementById('study_hours').value,
+                interest: document.getElementById('interest').value,
+                passed_courses: passedCourses,
+                failed_courses: failedCourses
+            };
+            
+            const resultDiv = document.getElementById('result');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '<h2>Analyzing your academic profile...</h2><div class="loading"></div>';
+            
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                
+                if (result.error) {
+                    resultDiv.innerHTML = `<h2>Error</h2><p class="error">${result.error}</p>`;
+                    return;
+                }
+                
+                const trackNames = {
+                    'AI': 'Artificial Intelligence',
+                    'Software_Engineering': 'Software Engineering',
+                    'Data_Science': 'Data Science',
+                    'Networks': 'Networks',
+                    'Cybersecurity': 'Cybersecurity',
+                    'Cloud_Computing': 'Cloud Computing'
+                };
+                
+                const formatNum = (num) => Number(num).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+                
+                resultDiv.innerHTML = `
+                    <h2>Recommendation Result</h2>
+                    <div class="main-result">
+                        <div class="track-badge">${trackNames[result.recommended_track] || result.recommended_track}</div>
+                        <div class="confidence-bar">
+                            <div class="confidence-fill" style="width: ${result.confidence}%"></div>
+                            <span class="confidence-text">${formatNum(result.confidence)}% confidence</span>
+                        </div>
+                    </div>
+                    <div class="gpa-prediction">
+                        <span class="gpa-label">Predicted GPA:</span>
+                        <span class="gpa-value">${formatNum(result.predicted_gpa)}</span>
+                    </div>
+                    <div class="top-results">
+                        <h3>Top 3 Recommendations</h3>
+                        ${result.top_3.map((item, i) => `
+                            <div class="result-item ${i === 0 ? 'primary' : ''}">
+                                <span class="rank">#${i + 1}</span>
+                                <span class="track-name">${trackNames[item.track] || item.track}</span>
+                                <span class="probability">${formatNum(item.probability)}%</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+                
+                resultDiv.scrollIntoView({ behavior: 'smooth' });
+                
+            } catch (error) {
+                resultDiv.innerHTML = `<h2>Error</h2><p class="error">Failed to get recommendation. Please try again.</p>`;
+            }
+        });
+    </script>
+</body>
+</html>

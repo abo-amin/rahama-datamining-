@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}قواعد الارتباط — Smart Academic Advisor{% endblock %}
+{% block page_title %}🔗 قواعد الارتباط (Association Rules){% endblock %}
+
+{% block content %}
+<div class="alert alert-info" style="margin-bottom:20px">
+  <span>ℹ️</span>
+  <span>هذه الصفحة تعرض أهم قواعد الارتباط المستخرجة من بيانات الطلاب باستخدام خوارزمية Apriori، والتي تساعد في فهم العلاقات بين المواد الدراسية ومسارات التخصص.</span>
+</div>
+
+<div class="card" style="margin-bottom:24px">
+  <div class="section-header" style="margin-bottom:14px">
+    <div class="section-title">📊 تحليل القواعد (Apriori Algorithm)</div>
+    <button class="btn btn-primary" id="load-btn" onclick="loadRules()" style="font-size:13px;padding:8px 16px">
+      🔄 تحديث القواعد
+    </button>
+  </div>
+  
+  <div id="loading-state" style="text-align:center; padding: 40px; color:var(--sub)">
+    <div class="spinner" style="display:inline-block; width:30px; height:30px; border:3px solid rgba(99,102,241,0.2); border-top-color:var(--blue); border-radius:50%; animation:spin 1s linear infinite; margin-bottom:15px"></div>
+    <div>جاري استخراج قواعد الارتباط... قد يستغرق هذا بضع ثوانٍ</div>
+  </div>
+
+  <div id="error-state" style="display:none; text-align:center; padding: 20px; color:var(--red)">
+    ❌ حدث خطأ أثناء تحميل القواعد.
+  </div>
+
+  <div id="rules-content" style="display:none;">
+    <div class="grid-3" style="margin-bottom:20px">
+        <div class="card" style="text-align:center; padding:15px; border:1px solid var(--border-dim)">
+            <div class="card-title">عدد القواعد</div>
+            <div class="card-value" style="color:var(--blue)" id="rules-count">—</div>
+        </div>
+        <div class="card" style="text-align:center; padding:15px; border:1px solid var(--border-dim)">
+            <div class="card-title">متوسط الثقة (Confidence)</div>
+            <div class="card-value" style="color:var(--green)" id="avg-conf">—</div>
+        </div>
+        <div class="card" style="text-align:center; padding:15px; border:1px solid var(--border-dim)">
+            <div class="card-title">متوسط الرفع (Lift)</div>
+            <div class="card-value" style="color:var(--amber)" id="avg-lift">—</div>
+        </div>
+    </div>
+
+    <div style="overflow-x:auto">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>السبب (Antecedents)</th>
+            <th>النتيجة (Consequents)</th>
+            <th>الدعم (Support)</th>
+            <th>الثقة (Confidence)</th>
+            <th>الرفع (Lift)</th>
+          </tr>
+        </thead>
+        <tbody id="rules-tbody">
+          <!-- Rules will be injected here -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<style>
+@keyframes spin { 100% { transform: rotate(360deg); } }
+.rule-item {
+    display: inline-block;
+    background: rgba(99, 102, 241, 0.1);
+    border: 1px solid rgba(99, 102, 241, 0.2);
+    color: var(--blue);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    margin: 2px;
+}
+.rule-track {
+    display: inline-block;
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    color: var(--green);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    margin: 2px;
+    font-weight: bold;
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function formatItems(items, isConsequent) {
+    if (!items || items.length === 0) return '-';
+    return items.map(item => {
+        if (item.startsWith('Track_')) {
+            return `<span class="rule-track">🎓 ${item.replace('Track_', '').replace(/_/g, ' ')}</span>`;
+        } else if (item.startsWith('Interest_')) {
+            return `<span class="rule-item">💡 ${item.replace('Interest_', '')}</span>`;
+        } else if (item.includes('_GPA')) {
+            return `<span class="rule-item">📊 ${item.replace('_', ' ')}</span>`;
+        } else {
+            return `<span class="rule-item">📚 ${item}</span>`;
+        }
+    }).join(' ');
+}
+
+async function loadRules() {
+    const loading = document.getElementById('loading-state');
+    const content = document.getElementById('rules-content');
+    const errorState = document.getElementById('error-state');
+    const btn = document.getElementById('load-btn');
+
+    loading.style.display = 'block';
+    content.style.display = 'none';
+    errorState.style.display = 'none';
+    btn.disabled = true;
+
+    try {
+        const response = await fetch('/api/association-rules');
+        const data = await response.json();
+        
+        if (data.error) {
+            throw new Error(data.error);
+        }
+
+        const rules = data.rules || [];
+        document.getElementById('rules-count').textContent = rules.length;
+        
+        if (rules.length > 0) {
+            const avgConf = rules.reduce((sum, r) => sum + r.confidence, 0) / rules.length;
+            const avgLift = rules.reduce((sum, r) => sum + r.lift, 0) / rules.length;
+            
+            document.getElementById('avg-conf').textContent = (avgConf * 100).toFixed(1) + '%';
+            document.getElementById('avg-lift').textContent = avgLift.toFixed(2);
+        } else {
+            document.getElementById('avg-conf').textContent = '0%';
+            document.getElementById('avg-lift').textContent = '0';
+        }
+
+        const tbody = document.getElementById('rules-tbody');
+        tbody.innerHTML = rules.map((rule, idx) => `
+            <tr>
+                <td>${idx + 1}</td>
+                <td>${formatItems(rule.antecedents, false)}</td>
+                <td>${formatItems(rule.consequents, true)}</td>
+                <td><span class="badge badge-blue">${(rule.support * 100).toFixed(1)}%</span></td>
+                <td><strong style="color:var(--green)">${(rule.confidence * 100).toFixed(1)}%</strong></td>
+                <td><strong style="color:var(--amber)">${rule.lift.toFixed(2)}</strong></td>
+            </tr>
+        `).join('');
+
+        loading.style.display = 'none';
+        content.style.display = 'block';
+
+    } catch (err) {
+        console.error(err);
+        loading.style.display = 'none';
+        errorState.style.display = 'block';
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// Load rules when page is loaded
+document.addEventListener('DOMContentLoaded', loadRules);
+</script>
+{% endblock %}
